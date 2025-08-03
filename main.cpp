@@ -14,35 +14,9 @@
 
 using namespace std;
 
-using namespace std;
-
 // get_mac_address, get_ip_address GPT 사용했습니다.
 // https://chatgpt.com/share/688eda95-fa28-8004-8578-516519effd41
-int get_mac_address(const string& device, u_int8_t* my_mac) {
-    int sock;
-    struct ifreq ifr;
-
-    memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, device.c_str(), IFNAMSIZ - 1);
-
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) {
-        perror("socket");
-        return -1;
-    }
-
-    if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0) {
-        perror("ioctl(SIOCGIFHWADDR)");
-        close(sock);
-        return -1;
-    }
-
-    memcpy(my_mac, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
-    close(sock);
-    return 0;
-}
-
-int get_ip_address(const string& device, uint8_t* dest_ip) {
+int get_ip_address(const std::string& device, Ip& dest_ip) {
     int sock;
     struct ifreq ifr;
 
@@ -62,8 +36,38 @@ int get_ip_address(const string& device, uint8_t* dest_ip) {
     }
 
     struct sockaddr_in* ipaddr = (struct sockaddr_in*)&ifr.ifr_addr;
-    memcpy(dest_ip, &ipaddr->sin_addr, 4);
+    dest_ip = Ip(ntohl(ipaddr->sin_addr.s_addr));  // ✅ Ip 객체로 저장
     close(sock);
+    return 0;
+}
+
+int get_mac_address(const std::string& device, Mac& mac_out) {
+    int sock;
+    struct ifreq ifr;
+
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, device.c_str(), IFNAMSIZ - 1);
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        return -1;
+    }
+
+    if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0) {
+        perror("ioctl(SIOCGIFHWADDR)");
+        close(sock);
+        return -1;
+    }
+
+    mac_out = Mac((uint8_t*)ifr.ifr_hwaddr.sa_data);  // ✅ MAC 객체로 저장
+    close(sock);
+    return 0;
+}
+
+// 이건 내가 작성
+int get_target_mac(Ip myIp, Mac myMac, Ip targetIp) {
+
     return 0;
 }
 
@@ -78,24 +82,26 @@ int main(int argc, char* argv[]) {
     }
 
     char* dev = argv[1];
+    Ip targetIp(argv[2]);
+    Ip gatewayIp(argv[3]);
     
     // 공격자(나) ip
-    uint8_t my_ip[4];
-    get_ip_address(dev, my_ip);
-    printf("my IP : ");
-    for (int i = 0; i < 4; i++) {
-        printf("%d", my_ip[i]);
-        if (i < 4 - 1) {
-            printf(".");
-        }
-    }
-    printf("\n");
+    Ip myIp;
+    get_ip_address(dev, myIp);
 
-    // 대상 ip
-    char* targetIp = argv[2];
+    printf("my IP : %s\n", std::string(myIp).c_str());
+    
+    // 공격자(나) mac
+    Mac myMac;
+    get_mac_address(dev, myMac);
 
-    // 게이트웨이 ip
-    char* gatewayIp = argv[3];
+    printf("my MAC : %s\n", std::string(myMac).c_str());
+
+
+    // 타겟의 mac 주소 알아오기 - ARP
+    u_int8_t tragetMac[ETHER_ADDR_LEN];
+    get_target_mac(myIp, myMac, targetIp);
+    
 
     // 정상 arp request
     // EthArpPacket arpReqPacket;
@@ -107,7 +113,7 @@ int main(int argc, char* argv[]) {
 	// arpReqPacket.arp_.op_ = htons(ArpHdr::Request);
     // arpReqPacket.arp_.hrd_ = htons(ArpHdr::ETHER);
 	// arpReqPacket.arp_.pro_ = htons(EthHdr::Ip4);
-    // arpReqPacket.arp_.sip_= htonl(IP("myip"));
+    // arpReqPacket.arp_.sip_= htonl(IP(myIp));
     // arpReqPacket.arp_.tmac_ = MAC();
     // arpReqPacket.arp_.tip_ = htonl(IP(targetIp))
 
@@ -120,17 +126,6 @@ int main(int argc, char* argv[]) {
 
     // 게이트웨이 mac
 
-    // 내 mac
-    u_int8_t my_mac[ETHER_ADDR_LEN];
-    get_mac_address(dev, my_mac);
-
-    printf("my MAC : ");
-    for (int i=0; i<ETHER_ADDR_LEN; i++){
-        printf("%02x", my_mac[i]);
-        if (i < ETHER_ADDR_LEN - 1) {
-            printf(":");
-        }
-    }
 
     return 0;
 
