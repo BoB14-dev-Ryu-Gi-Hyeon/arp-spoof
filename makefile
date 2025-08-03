@@ -3,18 +3,19 @@ LDLIBS=-lpcap
 all: send-arp
 
 
-main.o: mac.h ip.h ethhdr.h arphdr.h main.cpp
+./lib/main.o: ./lib/mac.h ./lib/ip.h ./lib/ethhdr.h ./lib/arphdr.h main.cpp
 
-arphdr.o: mac.h ip.h arphdr.h arphdr.cpp
+./lib/arphdr.o: ./lib/mac.h ./lib/ip.h ./lib/arphdr.h ./lib/arphdr.cpp
 
-ethhdr.o: mac.h ethhdr.h ethhdr.cpp
+./lib/ethhdr.o: ./lib/mac.h ./lib/ethhdr.h ./lib/ethhdr.cpp
 
-ip.o: ip.h ip.cpp
+./lib/ip.o: ./lib/ip.h ./lib/ip.cpp
 
-mac.o : mac.h mac.cpp
+./lib/mac.o : ./lib/mac.h ./lib/mac.cpp
 
-send-arp: main.o arphdr.o ethhdr.o ip.o mac.o
+send-arp: main.o ./lib/arphdr.o ./lib/ethhdr.o ./lib/ip.o ./lib/mac.o
 	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 clean:
 	rm -f send-arp *.o
+	rm -f send-arp ./lib/*.o

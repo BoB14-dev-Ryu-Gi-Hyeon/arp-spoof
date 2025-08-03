@@ -1,4 +1,4 @@
-#include "network.h"
+#include "./lib/network.h"
 #include <cstdio>
 #include <pcap.h>
 #include <stdio.h>
